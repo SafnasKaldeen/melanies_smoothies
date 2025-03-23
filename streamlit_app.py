@@ -1,45 +1,57 @@
+# Import python packages
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
-from snowflake.snowpark.functions import when_matched
-import pandas as pd
+import requests
 
-# Streamlit UI
-st.title(":cup_with_straw: Pending Smoothie Orders! :cup_with_straw:")
-st.write("Orders that need to be filled.")
+# Write directly to the app
+st.title(":cup_with_straw: Customize your Smoothie! :cup_with_straw:")
+st.write("Choose the Fruits you want in your custom Smoothie!")
 
-# Snowflake session
+# option = st.selectbox(
+#     "What is your favourite fruit?",
+#     ("Bananas", "Strawberries", "Peaches"),
+# )
+
+# st.write("Your favourite fruits is: ", option)
+
+
+from snowflake.snowpark.functions import col
+
 session = get_active_session()
+my_dataframe = session.table("smoothies.public.fruit_options").select(col('FRUIT_NAME'))
+# st.dataframe(data=my_dataframe, use_container_width=True)
 
-# Fetch data
-my_dataframe = session.table("smoothies.public.orders").to_pandas()
+name_on_order = st.text_input("Name on Smoothie: ")
+st.write("The name on your Smoothie list will be: ",name_on_order)
 
-# Check if the dataframe has data
-if not my_dataframe.empty:
-    # Allow inline editing of the ORDER_FILLED column
-    edited_df = st.data_editor(
-        my_dataframe,
-        column_config={"ORDER_FILLED": st.column_config.CheckboxColumn("ORDER_FILLED")},
-        disabled=["NAME_ON_ORDER", "INGREDIENTS"],  # Disable edits for other columns
-        use_container_width=True
-    )
 
-    # Update the Snowflake table if changes were made
-    if st.button("Submit"):
-        # Convert updated dataframe back to Snowflake DataFrame
-        edited_dataset = session.create_dataframe(edited_df)
+ingredients_list = st.multiselect('choose upto 5 ingredients: ', my_dataframe ,max_selections=5)
 
-        # Reference original Snowflake table
-        og_dataset = session.table("smoothies.public.orders")
-        try:
-            # Perform a MERGE operation
-            og_dataset.merge(
-                edited_dataset,
-                og_dataset['ORDER_UID'] == edited_dataset['ORDER_UID'],
-                [when_matched().update({'ORDER_FILLED': edited_dataset['ORDER_FILLED']})]
-            )
+if ingredients_list:
+    # st.write(ingredients_list)
+    # st.text(ingredients_list)
 
-            st.success("Order(s) updated!", icon="👍")
-        except:
-            st.write("Something went wrong")
-else:
-    st.success("There are no pending orders right now!", icon="👍")
+    ingredients_string = ''
+    
+    for fruit_chosen in ingredients_list:
+        ingredients_string += fruit_chosen + ' '
+        # smoothiefroot_response = requests.get("https://my.smoothiefroot.com/api/fruit/watermelon")
+        # sf_df = st.dataframe(data = smoothiefroot_response.json(), use_container_width=True)
+        # st.write(fruit_chosen)
+
+    # st.write(ingredients_string)
+
+    my_insert_stmt = f""" 
+    INSERT INTO smoothies.public.orders (ingredients, NAME_ON_ORDER)
+    VALUES ('{ingredients_string}', '{name_on_order}')
+"""
+
+
+    # st.write(my_insert_stmt)
+    
+    submit_button = st.button('Submit Order')
+
+    if submit_button:
+        session.sql(my_insert_stmt).collect()
+        st.success(f"""Your Smoothie is ordered, {name_on_order}!""", icon="✅")
+    
